@@ -73,7 +73,15 @@ fun AlAhliTheme(
 data class MonthlySummary(
     val monthYear: String,
     val totalAmount: Float,
-    val transactionCount: Int
+    val transactionCount: Int,
+    val spendingAmount: Float = 0f,
+    val spendingCount: Int = 0
+)
+
+data class SmsReadResult(
+    val summaries: List<MonthlySummary>,
+    val totalCashback: Float,
+    val totalSpending: Float
 )
 
 class MainActivity : ComponentActivity() {
@@ -113,9 +121,9 @@ fun CashbackTrackerScreen() {
     LaunchedEffect(permissionGranted) {
         if (permissionGranted && monthlySummaries.isEmpty() && !isLoading) {
             isLoading = true
-            val (summaries, total) = readSms(context)
-            monthlySummaries = summaries
-            totalCashback = total
+            val result = readSms(context)
+            monthlySummaries = result.summaries
+            totalCashback = result.totalCashback
             isLoading = false
         }
     }
@@ -124,9 +132,9 @@ fun CashbackTrackerScreen() {
         if (permissionGranted) {
             coroutineScope.launch {
                 isLoading = true
-                val (summaries, total) = readSms(context)
-                monthlySummaries = summaries
-                totalCashback = total
+                val result = readSms(context)
+                monthlySummaries = result.summaries
+                totalCashback = result.totalCashback
                 isLoading = false
             }
         } else {
@@ -251,6 +259,16 @@ fun CashbackTrackerScreen() {
                                         fontSize = 13.sp,
                                         color = Color.White.copy(alpha = 0.7f)
                                     )
+                                    val totalSpending = monthlySummaries.sumOf { it.spendingAmount.toDouble() }.toFloat()
+                                    if (totalSpending > 0f) {
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        Text(
+                                            text = String.format(Locale.US, "%.2f%% cashback rate", totalCashback / totalSpending * 100f),
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = Color.White.copy(alpha = 0.9f)
+                                        )
+                                    }
                                 }
                             }
                             Spacer(modifier = Modifier.height(8.dp))
@@ -280,14 +298,35 @@ fun MonthlySummaryCard(summary: MonthlySummary) {
                 .height(IntrinsicSize.Min),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Green accent bar
-            Box(
-                modifier = Modifier
-                    .width(4.dp)
-                    .fillMaxHeight()
-                    .background(MaterialTheme.colorScheme.primary)
-            )
-            // Month name and transaction count
+            // Accent bar: split green/red when spending present, solid green otherwise
+            if (summary.spendingCount > 0) {
+                Column(
+                    modifier = Modifier
+                        .width(4.dp)
+                        .fillMaxHeight()
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .width(4.dp)
+                            .weight(1f)
+                            .background(MaterialTheme.colorScheme.primary)
+                    )
+                    Box(
+                        modifier = Modifier
+                            .width(4.dp)
+                            .weight(1f)
+                            .background(MaterialTheme.colorScheme.error)
+                    )
+                }
+            } else {
+                Box(
+                    modifier = Modifier
+                        .width(4.dp)
+                        .fillMaxHeight()
+                        .background(MaterialTheme.colorScheme.primary)
+                )
+            }
+            // Content column
             Column(
                 modifier = Modifier
                     .weight(1f)
@@ -300,30 +339,72 @@ fun MonthlySummaryCard(summary: MonthlySummary) {
                     color = MaterialTheme.colorScheme.onSurface
                 )
                 Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    text = "${summary.transactionCount} transaction${if (summary.transactionCount != 1) "s" else ""}",
-                    fontSize = 13.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                // Cashback row
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "${summary.transactionCount} cashback transaction${if (summary.transactionCount != 1) "s" else ""}",
+                        fontSize = 13.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        if (summary.spendingAmount > 0f) {
+                            val pct = summary.totalAmount / summary.spendingAmount * 100f
+                            Text(
+                                text = String.format(Locale.US, "%.2f%%", pct),
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f)
+                            )
+                        }
+                        Text(
+                            text = String.format(Locale.US, "SAR %,.2f", summary.totalAmount),
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary,
+                            textAlign = TextAlign.End
+                        )
+                    }
+                }
+                // Spending row (conditional)
+                if (summary.spendingCount > 0) {
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 6.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "${summary.spendingCount} purchase${if (summary.spendingCount != 1) "s" else ""}",
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            text = String.format(Locale.US, "SAR %,.2f", summary.spendingAmount),
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.error,
+                            textAlign = TextAlign.End
+                        )
+                    }
+                }
             }
-            // Right-aligned SAR amount
-            Text(
-                text = String.format(Locale.US, "SAR %,.2f", summary.totalAmount),
-                fontSize = 15.sp,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.primary,
-                textAlign = TextAlign.End,
-                modifier = Modifier.padding(end = 16.dp)
-            )
         }
     }
 }
 
 // Runs on a background thread to avoid blocking the UI
-suspend fun readSms(context: Context): Pair<List<MonthlySummary>, Float> = withContext(Dispatchers.IO) {
+suspend fun readSms(context: Context): SmsReadResult = withContext(Dispatchers.IO) {
     val TAG = "SmsReader"
     val monthlyCashback = LinkedHashMap<String, MutableList<Float>>()
+    val monthlySpending = LinkedHashMap<String, MutableList<Float>>()
     var totalCashback = 0.0f
+    var totalSpending = 0.0f
 
     val inboxUri: Uri = Uri.parse("content://sms/inbox")
     val sender = "AlAhli"
@@ -333,7 +414,8 @@ suspend fun readSms(context: Context): Pair<List<MonthlySummary>, Float> = withC
     Log.d(TAG, "Querying SMS from senders LIKE: $sender")
     val cursor: Cursor? = context.contentResolver.query(inboxUri, null, selection, selectionArgs, "date DESC")
 
-    val saudiCashbackPattern = Pattern.compile("مبلغ[^\\d]*([\\d,]+(?:\\.\\d{1,2})?)\\s*SAR", Pattern.CASE_INSENSITIVE)
+    val mablaghSarPattern = Pattern.compile("مبلغ[^\\d]*([\\d,]+(?:\\.\\d{1,2})?)[\\s\\p{Cf}]*SAR")
+    val beSarPattern = Pattern.compile("بـ[\\p{Cf}]*([\\d,]+(?:\\.\\d{1,2})?)[\\s\\p{Cf}]*SAR")
 
     cursor?.use {
         Log.d(TAG, "Cursor is valid. Found ${it.count} messages from senders LIKE $sender.")
@@ -347,31 +429,43 @@ suspend fun readSms(context: Context): Pair<List<MonthlySummary>, Float> = withC
                 val message = it.getString(bodyIndex)
                 val timestamp = it.getLong(dateIndex)
                 val address = it.getString(senderIndex)
-                var amountStr: String? = null
-
                 Log.v(TAG, "Processing message from '$address': $message")
 
-                if (message.contains("استرجاع نقدي")) {
-                    Log.d(TAG, "Found 'استرجاع نقدي' keyword.")
-                    val matcher = saudiCashbackPattern.matcher(message)
-                    if (matcher.find()) {
-                        amountStr = matcher.group(1)
-                        Log.d(TAG, "SAR Pattern matched. Found amount string: $amountStr")
-                    } else {
-                        Log.w(TAG, "Keyword found but SAR pattern did not match.")
+                when {
+                    message.contains("استرجاع نقدي") -> {
+                        val matcher = mablaghSarPattern.matcher(message)
+                        if (matcher.find()) {
+                            try {
+                                val amount = matcher.group(1)!!.replace(",", "").toFloat()
+                                totalCashback += amount
+                                val monthYear = monthFormat.format(Date(timestamp))
+                                monthlyCashback.getOrPut(monthYear) { mutableListOf() }.add(amount)
+                                Log.i(TAG, "Cashback: $amount for $monthYear")
+                            } catch (e: NumberFormatException) {
+                                Log.e(TAG, "Could not parse cashback: ${matcher.group(1)}", e)
+                            }
+                        } else Log.w(TAG, "Cashback keyword found but pattern did not match.")
                     }
-                }
 
-                if (amountStr != null) {
-                    try {
-                        val cleanedAmountStr = amountStr.replace(",", "")
-                        val amount = cleanedAmountStr.toFloat()
-                        totalCashback += amount
-                        val monthYear = monthFormat.format(Date(timestamp))
-                        monthlyCashback.getOrPut(monthYear) { mutableListOf() }.add(amount)
-                        Log.i(TAG, "Successfully parsed amount: $amount for month: $monthYear")
-                    } catch (e: NumberFormatException) {
-                        Log.e(TAG, "Could not parse amount string: $amountStr", e)
+                    message.contains("شراء") -> {
+                        val m1 = mablaghSarPattern.matcher(message)
+                        val m2 = beSarPattern.matcher(message)
+                        val amountStr = when {
+                            m1.find() -> m1.group(1)
+                            m2.find() -> m2.group(1)
+                            else -> null
+                        }
+                        if (amountStr != null) {
+                            try {
+                                val amount = amountStr.replace(",", "").toFloat()
+                                totalSpending += amount
+                                val monthYear = monthFormat.format(Date(timestamp))
+                                monthlySpending.getOrPut(monthYear) { mutableListOf() }.add(amount)
+                                Log.i(TAG, "Spending: $amount for $monthYear")
+                            } catch (e: NumberFormatException) {
+                                Log.e(TAG, "Could not parse spending: $amountStr", e)
+                            }
+                        } else Log.w(TAG, "Spending keyword found but no pattern matched.")
                     }
                 }
             } while (it.moveToNext())
@@ -380,10 +474,16 @@ suspend fun readSms(context: Context): Pair<List<MonthlySummary>, Float> = withC
         }
     } ?: Log.e(TAG, "Cursor is null. Could not query SMS inbox.")
 
-    val summaries = monthlyCashback.map { (month, amounts) ->
-        MonthlySummary(month, amounts.sum(), amounts.size)
+    val allMonths = LinkedHashSet<String>().apply {
+        addAll(monthlyCashback.keys)
+        addAll(monthlySpending.keys)
+    }
+    val summaries = allMonths.map { month ->
+        val ca = monthlyCashback[month] ?: emptyList()
+        val sp = monthlySpending[month] ?: emptyList()
+        MonthlySummary(month, ca.sum(), ca.size, sp.sum(), sp.size)
     }
 
-    Log.i(TAG, "Finished processing. Total Cashback: $totalCashback. Found ${summaries.size} months.")
-    return@withContext Pair(summaries, totalCashback)
+    Log.i(TAG, "Finished processing. Total Cashback: $totalCashback. Total Spending: $totalSpending. Found ${summaries.size} months.")
+    return@withContext SmsReadResult(summaries, totalCashback, totalSpending)
 }
